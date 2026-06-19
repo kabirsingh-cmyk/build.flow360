@@ -1,24 +1,22 @@
 import { Router } from 'express';
-import { prisma } from '../index';
+import { supabase } from '../lib/supabase';
 
 const router = Router();
 
-router.get('/', async (_req, res) => {
-  const templates = await prisma.template.findMany({
-    where: { isActive: true },
-    orderBy: { createdAt: 'desc' }
-  });
-  res.json(templates);
+router.get('/', async (_req, res, next) => {
+  try {
+    const { data, error } = await supabase.from('templates').select('*').eq('is_active', true).order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) { next(err); }
 });
 
-router.get('/:slug', async (req, res) => {
-  const template = await prisma.template.findUnique({
-    where: { slug: req.params.slug }
-  });
-  if (!template) {
-    return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Template not found' } });
-  }
-  res.json(template);
+router.get('/:slug', async (req, res, next) => {
+  try {
+    const { data, error } = await supabase.from('templates').select('*').eq('slug', req.params.slug).single();
+    if (error || !data) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Template not found' } });
+    res.json(data);
+  } catch (err) { next(err); }
 });
 
 export default router;

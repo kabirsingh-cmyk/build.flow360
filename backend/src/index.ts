@@ -1,10 +1,9 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
-import { PrismaClient } from '@prisma/client';
 
 import authRoutes from './routes/auth';
 import siteRoutes from './routes/sites';
@@ -20,7 +19,6 @@ import templateRoutes from './routes/templates';
 dotenv.config();
 
 const app = express();
-const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
@@ -35,21 +33,15 @@ app.use(express.urlencoded({ extended: true }));
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
 });
 app.use('/api/', limiter);
 
-const authLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 10, // 10 auth attempts per 5 minutes
-});
-app.use('/api/v1/auth', authLimiter);
-
 // Health check
-app.get('/health', (_req: Request, res: Response) => {
+app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
@@ -66,20 +58,19 @@ app.use('/api/v1', billingRoutes);
 app.use('/api/v1/templates', templateRoutes);
 
 // Error handling
-app.use((err: any, _req: Request, res: Response, _next: any) => {
+app.use((err: any, _req: any, res: any, _next: any) => {
   console.error(err.stack);
   res.status(err.status || 500).json({
     error: {
       code: err.code || 'INTERNAL_ERROR',
       message: err.message || 'Something went wrong!',
-      requestId: req.headers['x-request-id'] || 'unknown',
       timestamp: new Date().toISOString()
     }
   });
 });
 
 // 404 handler
-app.use((_req: Request, res: Response) => {
+app.use((_req: any, res: any) => {
   res.status(404).json({
     error: {
       code: 'NOT_FOUND',
@@ -93,5 +84,3 @@ app.listen(PORT, () => {
   console.log(`🚀 SiteForge API running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
-
-export { prisma };

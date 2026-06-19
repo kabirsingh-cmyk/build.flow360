@@ -1,11 +1,13 @@
 import { Router } from 'express';
-import { prisma } from '../index';
+import { supabase } from '../lib/supabase';
 
 const router = Router();
 
 router.post('/events', async (req, res) => {
-  // Public endpoint for tracking
-  res.json({ success: true });
+  try {
+    await supabase.from('analytics_events').insert(req.body);
+    res.json({ success: true });
+  } catch { res.json({ success: true }); }
 });
 
 router.get('/:siteId/analytics', async (req, res) => {
