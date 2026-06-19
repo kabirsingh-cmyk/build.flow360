@@ -1,0 +1,596 @@
+// prisma/schema.prisma
+// ============================================
+// CORE IDENTITY
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  avatarUrl     String?
+  role          UserRole  @default(OWNER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  sites         Site[]
+  teams         TeamMember[]
+  subscriptions Subscription[]
+  aiGenerations AiGeneration[]
+  
+  @@index([email])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refreshToken      String? @db.Text
+  accessToken       String? @db.Text
+  expiresAt         Int?
+  tokenType         String?
+  scope             String?
+  idToken           String? @db.Text
+  sessionState      String?
+  
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model TeamMember {
+  id        String     @id @default(cuid())
+  userId    String
+  siteId    String
+  role      TeamRole   @default(EDITOR)
+  createdAt DateTime   @default(now())
+  
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  site      Site       @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, siteId])
+  @@map("team_members")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum TeamRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+// ============================================
+// SITE & DOMAIN
+// ============================================
+
+model Site {
+  id            String      @id @default(cuid())
+  name          String
+  slug          String      @unique
+  description   String?     @db.Text
+  status        SiteStatus  @default(DRAFT)
+  industry      String?
+  location      String?
+  timezone      String      @default("America/New_York")
+  
+  brandColors   Json?
+  brandFonts    Json?
+  logoUrl       String?
+  faviconUrl    String?
+  
+  aeoConfig     AeoConfig?  @relation(fields: [aeoConfigId], references: [id])
+  aeoConfigId   String?     @unique
+  aeoScore      Int         @default(0)
+  
+  metaTitle     String?     @db.VarChar(60)
+  metaDescription String?   @db.VarChar(160)
+  
+  ownerId       String
+  owner         User        @relation(fields: [ownerId], references: [id])
+  pages         Page[]
+  teamMembers   TeamMember[]
+  domains       Domain[]
+  deployments   Deployment[]
+  assets        Asset[]
+  contacts      Contact[]
+  subscriptions Subscription[]
+  aiGenerations AiGeneration[]
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  lastPublishedAt DateTime?
+  
+  @@index([ownerId])
+  @@index([status])
+  @@index([industry])
+  @@map("sites")
+}
+
+enum SiteStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Domain {
+  id          String   @id @default(cuid())
+  domain      String   @unique
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  sslEnabled  Boolean  @default(true)
+  dnsVerified Boolean  @default(false)
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  
+  @@index([siteId])
+  @@map("domains")
+}
+
+// ============================================
+// PAGE & COMPONENT TREE
+// ============================================
+
+model Page {
+  id          String    @id @default(cuid())
+  siteId      String
+  site        Site      @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  
+  name        String
+  slug        String
+  path        String
+  isHomePage  Boolean   @default(false)
+  isVisible   Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  
+  metaTitle       String?   @db.VarChar(60)
+  metaDescription String?   @db.VarChar(160)
+  ogImageUrl      String?
+  canonicalUrl    String?
+  schemaType      SchemaType?
+  
+  sections    Section[]
+  versions    PageVersion[]
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  @@unique([siteId, slug])
+  @@index([siteId])
+  @@index([path])
+  @@map("pages")
+}
+
+model Section {
+  id          String    @id @default(cuid())
+  pageId      String
+  page        Page      @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  
+  type        SectionType
+  name        String
+  sortOrder   Int       @default(0)
+  
+  config      Json
+  styles      Json?
+  
+  isAeoOptimized Boolean @default(false)
+  aeoNotes    String?   @db.Text
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  @@index([pageId])
+  @@index([type])
+  @@map("sections")
+}
+
+enum SectionType {
+  HERO
+  TEXT
+  FEATURES
+  TESTIMONIALS
+  FAQ
+  CTA
+  CONTACT_FORM
+  IMAGE_GALLERY
+  PRICING
+  TEAM
+  STATS
+  BLOG_PREVIEW
+  FOOTER
+  NAVBAR
+  CUSTOM
+}
+
+enum SchemaType {
+  WEBPAGE
+  ARTICLE
+  BLOGPOSTING
+  PRODUCT
+  FAQPAGE
+  HOWTO
+  LOCALBUSINESS
+  ORGANIZATION
+  PERSON
+  SERVICE
+  EVENT
+  REVIEW
+}
+
+model PageVersion {
+  id          String    @id @default(cuid())
+  pageId      String
+  page        Page      @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  
+  version     Int
+  snapshot    Json
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  
+  @@index([pageId])
+  @@map("page_versions")
+}
+
+// ============================================
+// AEO ENGINE
+// ============================================
+
+model AeoConfig {
+  id              String   @id @default(cuid())
+  
+  orgName         String
+  orgDescription  String?  @db.Text
+  orgUrl          String?
+  orgLogoUrl      String?
+  orgSameAs       Json?
+  
+  businessType    String?
+  address         Json?
+  geoCoordinates  Json?
+  telephone       String?
+  email           String?
+  openingHours    Json?
+  priceRange      String?
+  
+  targetKeywords  Json?
+  contentTone     String   @default("professional")
+  
+  autoGenerateSchema   Boolean @default(true)
+  autoGenerateSitemap  Boolean @default(true)
+  autoGenerateRobots   Boolean @default(true)
+  autoGenerateLlmsTxt  Boolean @default(true)
+  
+  site            Site?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@map("aeo_configs")
+}
+
+model SchemaMarkup {
+  id          String   @id @default(cuid())
+  siteId      String
+  pageId      String?
+  
+  type        SchemaType
+  jsonLd      String   @db.Text
+  isValid     Boolean  @default(true)
+  validationErrors Json?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([siteId])
+  @@index([pageId])
+  @@map("schema_markup")
+}
+
+model AeoScore {
+  id          String   @id @default(cuid())
+  siteId      String
+  
+  score       Int
+  category    String
+  details     Json?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([siteId])
+  @@map("aeo_scores")
+}
+
+// ============================================
+// AI GENERATION
+// ============================================
+
+model AiGeneration {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  siteId      String?
+  site        Site?    @relation(fields: [siteId], references: [id])
+  
+  type        GenerationType
+  prompt      String   @db.Text
+  output      Json?
+  status      GenerationStatus @default(PENDING)
+  tokensUsed  Int?
+  costCents   Int?
+  
+  errorMessage String? @db.Text
+  
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+  
+  @@index([userId])
+  @@index([siteId])
+  @@index([status])
+  @@map("ai_generations")
+}
+
+enum GenerationType {
+  FULL_SITE
+  PAGE
+  SECTION
+  COPY_REWRITE
+  IMAGE
+  FAQ_BLOCK
+  BLOG_POST
+  SCHEMA
+  SEO_META
+}
+
+enum GenerationStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ============================================
+// ASSETS
+// ============================================
+
+model Asset {
+  id          String   @id @default(cuid())
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  
+  name        String
+  type        AssetType
+  url         String
+  size        Int?
+  width       Int?
+  height      Int?
+  altText     String?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([siteId])
+  @@index([type])
+  @@map("assets")
+}
+
+enum AssetType {
+  IMAGE
+  VIDEO
+  SVG
+  FONT
+  DOCUMENT
+}
+
+// ============================================
+// DEPLOYMENT
+// ============================================
+
+model Deployment {
+  id          String   @id @default(cuid())
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  
+  version     String
+  status      DeploymentStatus @default(PENDING)
+  
+  previewUrl  String?
+  liveUrl     String?
+  
+  buildLog    String?  @db.Text
+  staticFiles Json?
+  
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+  
+  @@index([siteId])
+  @@map("deployments")
+}
+
+enum DeploymentStatus {
+  PENDING
+  BUILDING
+  DEPLOYING
+  LIVE
+  FAILED
+  ROLLED_BACK
+}
+
+// ============================================
+// CRM
+// ============================================
+
+model Contact {
+  id          String   @id @default(cuid())
+  siteId      String
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  
+  email       String
+  name        String?
+  phone       String?
+  source      String?
+  status      LeadStatus @default(NEW)
+  notes       String?  @db.Text
+  tags        Json?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([siteId])
+  @@index([email])
+  @@map("contacts")
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROPOSAL
+  WON
+  LOST
+  ARCHIVED
+}
+
+// ============================================
+// BILLING
+// ============================================
+
+model Plan {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?  @db.Text
+  
+  priceMonthly  Int
+  priceYearly   Int
+  
+  maxSites      Int    @default(1)
+  maxPages      Int    @default(5)
+  maxAiGenerationsPerMonth Int @default(50)
+  maxAssets     Int    @default(100)
+  maxTeamMembers Int   @default(1)
+  maxProducts   Int    @default(0)
+  
+  features      Json
+  
+  isActive      Boolean @default(true)
+  
+  subscriptions Subscription[]
+  
+  @@map("plans")
+}
+
+model Subscription {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  siteId      String?
+  site        Site?    @relation(fields: [siteId], references: [id])
+  planId      String
+  plan        Plan     @relation(fields: [planId], references: [id])
+  
+  stripeSubscriptionId String? @unique
+  stripeCustomerId     String?
+  stripePriceId        String?
+  
+  status      SubscriptionStatus @default(INCOMPLETE)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean @default(false)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([siteId])
+  @@map("subscriptions")
+}
+
+enum SubscriptionStatus {
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+  PAUSED
+}
+
+// ============================================
+// ANALYTICS
+// ============================================
+
+model AnalyticsEvent {
+  id          String   @id @default(cuid())
+  siteId      String
+  
+  type        EventType
+  pagePath    String?
+  referrer    String?
+  userAgent   String?  @db.Text
+  ipAddress   String?
+  country     String?
+  device      String?
+  
+  metadata    Json?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([siteId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("analytics_events")
+}
+
+enum EventType {
+  PAGE_VIEW
+  FORM_SUBMIT
+  BUTTON_CLICK
+  AI_CITATION_DETECTED
+  AI_REFERRAL
+  SCROLL_DEPTH
+  TIME_ON_PAGE
+  CONVERSION
+}
+
+// ============================================
+// TEMPLATES
+// ============================================
+
+model Template {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?  @db.Text
+  industry    String?
+  
+  thumbnailUrl String?
+  previewUrl  String?
+  
+  config      Json
+  
+  isOfficial  Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([industry])
+  @@index([isOfficial])
+  @@map("templates")
+}
