@@ -17,6 +17,7 @@ interface Page {
   id: string
   name: string
   slug: string
+  isHomePage?: boolean
   sections: Section[]
 }
 
